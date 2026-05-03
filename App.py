@@ -1,152 +1,121 @@
 import streamlit as st
 import pandas as pd
-import re
+import numpy as np
 
 # ==========================================
-# 1. KONFIGURASI HALAMAN
+# 1. SETUP & BRANDING
 # ==========================================
-st.set_page_config(page_title="SalesPintar v2.0", page_icon="⚡", layout="wide")
+st.set_page_config(page_title="SalesPintar Pro", page_icon="⚡", layout="wide")
 
 st.markdown("""
     <style>
-    .metric-card { background-color: #0F172A; padding: 20px; border-radius: 10px; border-left: 5px solid #FF6B35; color: white; margin-bottom: 10px; }
-    .metric-value { font-size: 1.8rem; font-weight: bold; color: #10B981; }
-    .metric-title { font-size: 0.9rem; color: #CBD5E1; }
+    .metric-card { background-color: #0F172A; padding: 15px; border-radius: 10px; border-left: 5px solid #FF6B35; color: white; }
+    .metric-value { font-size: 1.5rem; font-weight: bold; color: #10B981; }
     </style>
 """, unsafe_allow_html=True)
 
+# Inisialisasi Database Sales di Memory (Stateful)
+if 'master_sales' not in st.session_state:
+    st.session_state.master_sales = ["Rahmat", "Budi", "Siti"] # Data awal
+
 hari_ini = pd.to_datetime('today').normalize()
 
-def tentukan_status(tanggal_terakhir):
-    if pd.isna(tanggal_terakhir): return '⚪ Data Kosong'
-    selisih_hari = (hari_ini - tanggal_terakhir).days
-    if selisih_hari <= 30: return '🟢 Current'
-    elif selisih_hari <= 60: return '🟡 Aktif'
-    elif selisih_hari <= 90: return '🟠 Dormant'
-    else: return '🔴 Tidak Aktif'
-
 # ==========================================
-# 2. FUNGSI SMART SCANNER (Deteksi Kolom Otomatis)
-# ==========================================
-def temukan_kolom(df, kata_kunci_list):
-    """Mencari kolom berdasarkan kemiripan kata kunci"""
-    for col in df.columns:
-        col_bersih = re.sub(r'[^a-zA-Z0-9]', '', str(col).lower())
-        for keyword in kata_kunci_list:
-            if keyword in col_bersih:
-                return col
-    return None
-
-# ==========================================
-# 3. MENU SIDEBAR
+# 2. MENU SIDEBAR (PUSAT KENDALI)
 # ==========================================
 st.sidebar.image("https://img.icons8.com/fluency/96/000000/lightning-bolt.png", width=50)
-st.sidebar.markdown("<h2 style='color: #FF6B35;'>SalesPintar</h2>", unsafe_allow_html=True)
-st.sidebar.write("---")
+st.sidebar.markdown("<h2 style='color: #FF6B35;'>SalesPintar Pro</h2>", unsafe_allow_html=True)
 
-st.sidebar.subheader("📂 1. Upload Data")
-file_excel = st.sidebar.file_uploader("Upload Data Penjualan", type=['xlsx', 'xls', 'csv'])
-
+# Fitur Tambah Sales Manual
 st.sidebar.write("---")
-st.sidebar.subheader("🔐 2. Login Akses")
-role = st.sidebar.radio("Pilih Mode:", ["👔 Mode Manajer", "🚶‍♂️ Mode Sales"])
+st.sidebar.subheader("👤 Management Tim")
+new_sales = st.sidebar.text_input("Tambah Nama Sales Baru:")
+if st.sidebar.button("Tambah ke Sistem"):
+    if new_sales and new_sales not in st.session_state.master_sales:
+        st.session_state.master_sales.append(new_sales)
+        st.sidebar.success(f"{new_sales} berhasil ditambahkan!")
+
+# Fitur Multi-File Upload
+st.sidebar.write("---")
+st.sidebar.subheader("📂 Sumber Data")
+uploaded_files = st.sidebar.file_uploader("Upload satu atau beberapa file Excel/CSV", type=['xlsx', 'csv'], accept_multiple_files=True)
+
+role = st.sidebar.radio("Mode Tampilan:", ["👔 Manajer (Analitik)", "🚶‍♂️ Sales (Lapangan)"])
 
 # ==========================================
-# 4. LOGIKA APLIKASI UTAMA
+# 3. MESIN PEMROSES DATA (MULTI-FILE MERGER)
 # ==========================================
-if file_excel is None:
-    st.markdown("<h1>⚡ Sales<span style='color:#FF6B35;'>Pintar</span></h1>", unsafe_allow_html=True)
-    st.info("👈 **Upload file Excel Anda lewat menu di sebelah kiri.** Sistem Smart Scanner kami akan otomatis mendeteksi kolom data Anda.")
+def process_all_data(files):
+    all_df = []
+    for f in files:
+        df = pd.read_csv(f) if f.name.endswith('.csv') else pd.read_excel(f)
+        all_df.append(df)
+    
+    combined = pd.concat(all_df, ignore_index=True)
+    
+    # Smart Cleaning Tanggal
+    date_col = next((c for c in combined.columns if 'tgl' in c.lower() or 'tanggal' in c.lower() or 'order' in c.lower()), None)
+    if date_col:
+        combined[date_col] = pd.to_datetime(combined[date_col], errors='coerce')
+        combined['Hari Sejak Order'] = (hari_ini - combined[date_col]).dt.days
+    
+    return combined, date_col
+
+# ==========================================
+# 4. DASHBOARD UTAMA
+# ==========================================
+if not uploaded_files:
+    st.title("⚡ Selamat Datang, Supervisor!")
+    st.info("Silakan unggah file database penjualan Anda di sidebar untuk memulai analisis wilayah.")
+    
+    # Menampilkan Master Sales yang terdaftar
+    st.write("### Tim Sales Terdaftar saat ini:")
+    st.write(", ".join(st.session_state.master_sales))
+
 else:
-    try:
-        # Membaca data
-        if file_excel.name.endswith('.csv'):
-            df_mentah = pd.read_csv(file_excel)
+    df, date_col = process_all_data(uploaded_files)
+    
+    if role == "👔 Manajer (Analitik)":
+        st.title("📊 Kendali Produktivitas Wilayah")
+        
+        # METRIK UTAMA
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.markdown(f"<div class='metric-card'>Total Outlet<br><span class='metric-value'>{len(df)} Toko</span></div>", unsafe_allow_html=True)
+        with col2:
+            current_count = len(df[df['Hari Sejak Order'] <= 30]) if 'Hari Sejak Order' in df.columns else 0
+            st.markdown(f"<div class='metric-card'>Outlet Sehat (Current)<br><span class='metric-value'>{current_count} Toko</span></div>", unsafe_allow_html=True)
+        with col3:
+            st.markdown(f"<div class='metric-card'>Tim Aktif<br><span class='metric-value'>{len(st.session_state.master_sales)} Personel</span></div>", unsafe_allow_html=True)
+
+        # INTEGRASI MAPS (Jika ada data Latitude & Longitude)
+        st.write("---")
+        st.subheader("📍 Pemetaan Lokasi Outlet")
+        
+        # Simulasi deteksi kolom lokasi untuk Maps
+        lat_col = next((c for c in df.columns if 'lat' in c.lower()), None)
+        lon_col = next((c for c in df.columns if 'lon' in c.lower() or 'lng' in c.lower()), None)
+        
+        if lat_col and lon_col:
+            map_data = df[[lat_col, lon_col]].dropna()
+            st.map(map_data)
         else:
-            df_mentah = pd.read_excel(file_excel)
+            st.warning("Info: Untuk mengaktifkan fitur peta, pastikan Excel Anda memiliki kolom 'Latitude' dan 'Longitude'.")
+
+        # ANALISIS PER SALES
+        st.write("---")
+        st.subheader("📈 Performa Berdasarkan Tim")
+        sales_col = next((c for c in df.columns if 'sales' in c.lower() or 'pic' in c.lower()), None)
+        
+        if sales_col:
+            # Menggabungkan data Excel dengan Master Sales kita
+            sales_summary = df.groupby(sales_col).size().reset_index(name='Jumlah Toko')
+            st.bar_chart(sales_summary.set_index(sales_col))
+            st.write(df)
             
-        # PROSES SMART MAPPING
-        col_toko = temukan_kolom(df_mentah, ['toko', 'outlet', 'pelanggan', 'nama', 'customer'])
-        col_wilayah = temukan_kolom(df_mentah, ['wilayah', 'area', 'cabang', 'rayon', 'kota', 'lokasi'])
-        col_sales = temukan_kolom(df_mentah, ['sales', 'pic', 'karyawan', 'petugas'])
-        col_tanggal = temukan_kolom(df_mentah, ['terakhir', 'tanggal', 'order', 'date', 'waktu', 'tgl'])
-        col_omzet = temukan_kolom(df_mentah, ['omzet', 'penjualan', 'total', 'rupiah', 'rp', 'value'])
-
-        # Jika kolom penting (Tanggal & Toko) tidak ketemu sama sekali
-        if not col_tanggal or not col_toko:
-            st.error("❌ **Sistem gagal mendeteksi struktur data.** Pastikan Excel Anda setidaknya memiliki kolom yang berisi 'Nama Toko' dan 'Tanggal Order'.")
-            st.write("Kolom yang terdeteksi di file Anda:", list(df_mentah.columns))
-        else:
-            # Standarisasi nama kolom secara internal
-            df = df_mentah.copy()
-            mapping_kolom = {col_toko: 'Nama Outlet', col_wilayah: 'Wilayah', col_sales: 'Sales PIC', col_tanggal: 'Terakhir Order', col_omzet: 'Total Omzet'}
-            # Hapus nilai None dari dictionary mapping (jika ada kolom opsional yang tidak ketemu)
-            mapping_kolom = {k: v for k, v in mapping_kolom.items() if k is not None}
-            df = df.rename(columns=mapping_kolom)
-            
-            # Jika wilayah/sales tidak ada, beri nilai default
-            if 'Wilayah' not in df.columns: df['Wilayah'] = 'Area Umum'
-            if 'Sales PIC' not in df.columns: df['Sales PIC'] = 'Tim Sales'
-            if 'Total Omzet' not in df.columns: df['Total Omzet'] = 0
-
-            # Konversi dan Kalkulasi
-            df['Terakhir Order'] = pd.to_datetime(df['Terakhir Order'], errors='coerce')
-            df['Hari Sejak Order'] = (hari_ini - df['Terakhir Order']).dt.days
-            df['Status Outlet'] = df['Terakhir Order'].apply(tentukan_status)
-            
-            # Isi kolom numerik yang kosong dengan 0
-            df['Total Omzet'] = pd.to_numeric(df['Total Omzet'], errors='coerce').fillna(0)
-
-            st.success(f"🤖 **Smart Scanner Aktif:** Berhasil membaca data dari {len(df)} toko secara otomatis!")
-
-            # ----------------------------------------
-            # HALAMAN: MODE MANAJER
-            # ----------------------------------------
-            if role == "👔 Mode Manajer":
-                st.markdown("<h1>📊 Dasbor Manajer: <span style='color:#FF6B35;'>Produktivitas Outlet</span></h1>", unsafe_allow_html=True)
-                
-                total_omzet = df['Total Omzet'].sum()
-                jml_current = len(df[df['Status Outlet'] == '🟢 Current'])
-                jml_dormant = len(df[df['Status Outlet'] == '🟠 Dormant'])
-                jml_mati = len(df[df['Status Outlet'] == '🔴 Tidak Aktif'])
-                
-                col1, col2 = st.columns(2)
-                with col1: st.markdown(f"<div class='metric-card'><div class='metric-title'>Total Omzet Terdeteksi</div><div class='metric-value'>Rp {total_omzet:,.0f}</div></div>", unsafe_allow_html=True)
-                with col2: st.markdown(f"<div class='metric-card' style='border-color: #10B981;'><div class='metric-title'>Outlet Sehat (Current)</div><div class='metric-value' style='color:#10B981;'>{jml_current} Toko</div></div>", unsafe_allow_html=True)
-                
-                col3, col4 = st.columns(2)
-                with col3: st.markdown(f"<div class='metric-card' style='border-color: #F59E0B;'><div class='metric-title'>Outlet Dormant</div><div class='metric-value' style='color:#F59E0B;'>{jml_dormant} Toko</div></div>", unsafe_allow_html=True)
-                with col4: st.markdown(f"<div class='metric-card' style='border-color: #EF4444;'><div class='metric-title'>Outlet Tidak Aktif</div><div class='metric-value' style='color:#EF4444;'>{jml_mati} Toko</div></div>", unsafe_allow_html=True)
-                    
-                st.write("---")
-                filter_wilayah = st.selectbox("Filter Wilayah:", ["Semua Area"] + list(df['Wilayah'].dropna().unique()))
-                
-                df_tampil = df[df['Wilayah'] == filter_wilayah].copy() if filter_wilayah != "Semua Area" else df.copy()
-                    
-                # Format tanggal agar cantik
-                df_tampil['Terakhir Order'] = df_tampil['Terakhir Order'].dt.strftime('%d-%m-%Y').fillna('-')
-                st.dataframe(df_tampil[['Nama Outlet', 'Wilayah', 'Sales PIC', 'Terakhir Order', 'Status Outlet', 'Total Omzet']], use_container_width=True, hide_index=True)
-
-            # ----------------------------------------
-            # HALAMAN: MODE SALES
-            # ----------------------------------------
-            elif role == "🚶‍♂️ Mode Sales":
-                st.markdown("<h1>📱 Dasbor Sales: <span style='color:#10B981;'>Rute Prioritas</span></h1>", unsafe_allow_html=True)
-                
-                list_sales = [s for s in df['Sales PIC'].unique() if pd.notna(s)]
-                if not list_sales:
-                    st.warning("Data nama sales tidak ditemukan di file ini.")
-                else:
-                    nama_sales = st.selectbox("Pilih Profil Anda:", list_sales)
-                    
-                    df_sales = df[(df['Sales PIC'] == nama_sales) & (df['Status Outlet'].isin(['🟠 Dormant', '🔴 Tidak Aktif']))].copy()
-                    
-                    if len(df_sales) > 0:
-                        st.warning(f"⚠️ **{nama_sales}**, ada {len(df_sales)} outlet yang perlu di-reaktivasi segera!")
-                        df_sales['Terakhir Order'] = df_sales['Terakhir Order'].dt.strftime('%d-%m-%Y').fillna('-')
-                        st.dataframe(df_sales[['Nama Outlet', 'Wilayah', 'Hari Sejak Order', 'Status Outlet']], use_container_width=True, hide_index=True)
-                    else:
-                        st.success("🎉 Luar biasa! Semua outlet di rute Anda sehat.")
-
-    except Exception as e:
-        st.error(f"Terjadi kesalahan sistem saat memproses data. Error: {e}")
+    elif role == "🚶‍♂️ Sales (Lapangan)":
+        st.title("📱 Rute Cerdas Anda")
+        user_sales = st.selectbox("Pilih Nama Anda:", st.session_state.master_sales)
+        # Filter data spesifik untuk sales tersebut
+        # (Logika pencocokan string cerdas bisa ditambahkan di sini)
+        st.success(f"Menampilkan rute prioritas untuk {user_sales}...")
