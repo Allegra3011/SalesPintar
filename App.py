@@ -104,3 +104,49 @@ else:
             # ----------------------------------------
             if role == "👔 Mode Manajer":
                 st.markdown("<h1>📊 Dasbor Manajer: <span style='color:#FF6B35;'>Produktivitas Outlet</span></h1>", unsafe_allow_html=True)
+                
+                total_omzet = df['Total Omzet'].sum()
+                jml_current = len(df[df['Status Outlet'] == '🟢 Current'])
+                jml_dormant = len(df[df['Status Outlet'] == '🟠 Dormant'])
+                jml_mati = len(df[df['Status Outlet'] == '🔴 Tidak Aktif'])
+                
+                col1, col2 = st.columns(2)
+                with col1: st.markdown(f"<div class='metric-card'><div class='metric-title'>Total Omzet Terdeteksi</div><div class='metric-value'>Rp {total_omzet:,.0f}</div></div>", unsafe_allow_html=True)
+                with col2: st.markdown(f"<div class='metric-card' style='border-color: #10B981;'><div class='metric-title'>Outlet Sehat (Current)</div><div class='metric-value' style='color:#10B981;'>{jml_current} Toko</div></div>", unsafe_allow_html=True)
+                
+                col3, col4 = st.columns(2)
+                with col3: st.markdown(f"<div class='metric-card' style='border-color: #F59E0B;'><div class='metric-title'>Outlet Dormant</div><div class='metric-value' style='color:#F59E0B;'>{jml_dormant} Toko</div></div>", unsafe_allow_html=True)
+                with col4: st.markdown(f"<div class='metric-card' style='border-color: #EF4444;'><div class='metric-title'>Outlet Tidak Aktif</div><div class='metric-value' style='color:#EF4444;'>{jml_mati} Toko</div></div>", unsafe_allow_html=True)
+                    
+                st.write("---")
+                filter_wilayah = st.selectbox("Filter Wilayah:", ["Semua Area"] + list(df['Wilayah'].dropna().unique()))
+                
+                df_tampil = df[df['Wilayah'] == filter_wilayah].copy() if filter_wilayah != "Semua Area" else df.copy()
+                    
+                # Format tanggal agar cantik
+                df_tampil['Terakhir Order'] = df_tampil['Terakhir Order'].dt.strftime('%d-%m-%Y').fillna('-')
+                st.dataframe(df_tampil[['Nama Outlet', 'Wilayah', 'Sales PIC', 'Terakhir Order', 'Status Outlet', 'Total Omzet']], use_container_width=True, hide_index=True)
+
+            # ----------------------------------------
+            # HALAMAN: MODE SALES
+            # ----------------------------------------
+            elif role == "🚶‍♂️ Mode Sales":
+                st.markdown("<h1>📱 Dasbor Sales: <span style='color:#10B981;'>Rute Prioritas</span></h1>", unsafe_allow_html=True)
+                
+                list_sales = [s for s in df['Sales PIC'].unique() if pd.notna(s)]
+                if not list_sales:
+                    st.warning("Data nama sales tidak ditemukan di file ini.")
+                else:
+                    nama_sales = st.selectbox("Pilih Profil Anda:", list_sales)
+                    
+                    df_sales = df[(df['Sales PIC'] == nama_sales) & (df['Status Outlet'].isin(['🟠 Dormant', '🔴 Tidak Aktif']))].copy()
+                    
+                    if len(df_sales) > 0:
+                        st.warning(f"⚠️ **{nama_sales}**, ada {len(df_sales)} outlet yang perlu di-reaktivasi segera!")
+                        df_sales['Terakhir Order'] = df_sales['Terakhir Order'].dt.strftime('%d-%m-%Y').fillna('-')
+                        st.dataframe(df_sales[['Nama Outlet', 'Wilayah', 'Hari Sejak Order', 'Status Outlet']], use_container_width=True, hide_index=True)
+                    else:
+                        st.success("🎉 Luar biasa! Semua outlet di rute Anda sehat.")
+
+    except Exception as e:
+        st.error(f"Terjadi kesalahan sistem saat memproses data. Error: {e}")
