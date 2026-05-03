@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-from datetime import date, timedelta
 
 # ==========================================
 # 1. KONFIGURASI HALAMAN & BRANDING
@@ -25,10 +24,9 @@ st.markdown("""
 # ==========================================
 # 2. GENERATE DATA DUMMY (SIMULASI DATABASE)
 # ==========================================
-# Simulasi tanggal hari ini
-hari_ini = date.today()
+# Perbaikan: Menggunakan pandas datetime agar stabil di server cloud
+hari_ini = pd.to_datetime('today').normalize()
 
-# Membuat data outlet dengan riwayat transaksi yang bervariasi
 @st.cache_data
 def load_data():
     data = {
@@ -36,14 +34,14 @@ def load_data():
         'Nama Outlet': ['Toko Makmur Jaya', 'Bengkel Sentosa', 'Bintang Motor', 'Maju Bersama', 'Sumber Rejeki', 'Karya Mandiri'],
         'Wilayah': ['Tanah Bumbu', 'Batulicin', 'Tanah Bumbu', 'Batulicin', 'Tanah Bumbu', 'Batulicin'],
         'Sales PIC': ['Rahmat', 'Budi', 'Rahmat', 'Siti', 'Budi', 'Siti'],
-        # Simulasi selisih hari dari transaksi terakhir
+        # Menggunakan pd.Timedelta agar formatnya seragam
         'Terakhir Order': [
-            hari_ini - timedelta(days=15),  # Current
-            hari_ini - timedelta(days=45),  # Aktif
-            hari_ini - timedelta(days=75),  # Dormant
-            hari_ini - timedelta(days=120), # Tidak Aktif
-            hari_ini - timedelta(days=5),   # Current
-            hari_ini - timedelta(days=85)   # Dormant
+            hari_ini - pd.Timedelta(days=15),  # Current
+            hari_ini - pd.Timedelta(days=45),  # Aktif
+            hari_ini - pd.Timedelta(days=75),  # Dormant
+            hari_ini - pd.Timedelta(days=120), # Tidak Aktif
+            hari_ini - pd.Timedelta(days=5),   # Current
+            hari_ini - pd.Timedelta(days=85)   # Dormant
         ],
         'Total Omzet (Bulan Ini)': [5500000, 2000000, 0, 0, 8500000, 0]
     }
@@ -66,7 +64,7 @@ def tentukan_status(tanggal_terakhir):
     else:
         return '🔴 Tidak Aktif'
 
-# Terapkan logika ke dalam kolom baru di DataFrame
+# Menghitung selisih hari dengan aman menggunakan pandas
 df['Hari Sejak Order'] = (hari_ini - df['Terakhir Order']).dt.days
 df['Status Outlet'] = df['Terakhir Order'].apply(tentukan_status)
 
@@ -119,16 +117,18 @@ if role == "👔 Mode Manajer":
     else:
         df_tampil = df
         
-    # Menampilkan tabel data
+    # Menampilkan tabel data (mengubah format kolom tanggal agar rapi)
+    df_tampil['Terakhir Order'] = df_tampil['Terakhir Order'].dt.strftime('%d-%m-%Y')
+    
     st.dataframe(
-        df_tampil[['ID Toko', 'Nama Outlet', 'Wilayah', 'Sales PIC', 'Hari Sejak Order', 'Status Outlet', 'Total Omzet (Bulan Ini)']],
+        df_tampil[['ID Toko', 'Nama Outlet', 'Wilayah', 'Sales PIC', 'Terakhir Order', 'Hari Sejak Order', 'Status Outlet', 'Total Omzet (Bulan Ini)']],
         use_container_width=True,
         hide_index=True
     )
     
     # --- Action Plan Section ---
     st.write("### ⚡ Rekomendasi Tindakan Cepat (Action Plan)")
-    st.info("**Strategi Reaktivasi:** Anda memiliki **{} outlet Dormant**. Segera arahkan tim sales untuk melakukan kunjungan prioritas dan tawarkan promo Bundling FMS pada outlet-outlet ini sebelum berubah menjadi Tidak Aktif.".format(jml_dormant))
+    st.info("**Strategi Reaktivasi:** Anda memiliki **{} outlet Dormant**. Segera arahkan tim sales untuk melakukan kunjungan prioritas dan tawarkan promo pada outlet-outlet ini sebelum berubah menjadi Tidak Aktif.".format(jml_dormant))
 
 # ==========================================
 # 6. HALAMAN: MODE SALES (EKSEKUSI LAPANGAN)
@@ -140,11 +140,11 @@ elif role == "🚶‍♂️ Mode Sales":
     
     st.write(f"Selamat bekerja, **{nama_sales}**! Ini adalah daftar outlet yang perlu penanganan khusus dari Anda hari ini.")
     
-    # Memfilter data hanya untuk sales yang login dan hanya menampilkan outlet yang butuh perhatian (Dormant & Tidak Aktif)
-    df_sales = df[(df['Sales PIC'] == nama_sales) & (df['Status Outlet'].isin(['🟠 Dormant', '🔴 Tidak Aktif']))]
+    df_sales = df[(df['Sales PIC'] == nama_sales) & (df['Status Outlet'].isin(['🟠 Dormant', '🔴 Tidak Aktif']))].copy()
     
     if len(df_sales) > 0:
         st.warning("⚠️ **Tugas Prioritas:** Lakukan reaktivasi pada toko berikut untuk menyelamatkan rute Anda!")
+        df_sales['Terakhir Order'] = df_sales['Terakhir Order'].dt.strftime('%d-%m-%Y')
         st.dataframe(df_sales[['Nama Outlet', 'Wilayah', 'Hari Sejak Order', 'Status Outlet']], use_container_width=True, hide_index=True)
     else:
         st.success("🎉 Luar biasa! Semua outlet di rute Anda dalam kondisi Current dan Aktif. Fokus pada peningkatan volume order!")
